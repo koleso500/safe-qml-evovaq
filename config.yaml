@@ -1,0 +1,60 @@
+# Paths
+paths:
+  csv_dir: tables
+  fig_hmda_dir: figures_hmda
+
+# Data
+hmda:
+  raw_csv: data/hmda_2017_ny_all-records_labels.csv
+  target: action_taken
+  create_sample: True
+  sample_fraction: 0.1
+
+# Reproducibility
+seed: 42
+
+# Cross-validation
+cross_validation:
+  n_splits: 5
+
+# Training
+training:
+  epochs: 20
+  batch_size: 32
+  learning_rate: 0.003
+
+# Quantum Model
+quantum:
+  n_qubits: 5
+  n_layers: 1
+
+# SAFE AI Metrics
+safe:
+  n_segments: 10
+  rge_tabular_n_steps:
+  rge_tabular_masking_method: greedy
+  rge_tabular_baseline: mean
+
+# Evovaq
+evovaq:
+  population_size: 20
+  max_gen: 30
+  batch_size: 64
+
+  init_sigma: 0.03
+  bounds_delta: 3.14159
+
+  crossover_probability: 0.9
+  crossover_individual_probability: 0.5
+
+  mutation_probability: 1.0
+  mutation_mu: 0.0
+  mutation_sigma: 0.2
+  mutation_individual_probability: 0.15
+
+  tournament_size: 5
+
+  inner_evo_val_size: 0.2
+
+  adapt_epochs: 3
+  adapt_lr: 0.001
