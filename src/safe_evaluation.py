@@ -73,17 +73,33 @@ def evaluate_qml_safe_metrics(
 
     x_final_val_t = torch.tensor(x_final_val, dtype=torch.float32)
 
-    models_rgr = {
-        model_name: (
-            model_info['model'],
-            x_final_val_t,
-            model_info['prob'],
-            class_order,
-            'pytorch',
-            device
-        )
-        for model_name, model_info in safe_models.items()
-    }
+    models_rgr = {}
+
+    for model_name, model_info in safe_models.items():
+        model_type = model_info.get('model_type', 'pytorch')
+
+        if model_type == 'sklearn':
+            models_rgr[model_name] = (
+                model_info['model'],
+                x_final_val,
+                model_info['prob'],
+                model_info['model'].classes_,
+                'sklearn',
+                None
+            )
+
+        elif model_type == 'pytorch':
+            models_rgr[model_name] = (
+                model_info['model'],
+                x_final_val_t,
+                model_info['prob'],
+                class_order,
+                'pytorch',
+                device
+            )
+
+        else:
+            raise ValueError(f'Unknown model_type for {model_name}: {model_type}')
 
     results_rgr = compare_models_rgr(
         models_dict=models_rgr,
@@ -104,18 +120,35 @@ def evaluate_qml_safe_metrics(
             float(results_rgr[model_name]['aurgr'])
         )
 
-    models_rge = {
-        model_name: (
-            model_info['model'],
-            x_final_val,
-            feature_names,
-            model_info['prob'],
-            class_order,
-            'pytorch',
-            device
-        )
-        for model_name, model_info in safe_models.items()
-    }
+    models_rge = {}
+
+    for model_name, model_info in safe_models.items():
+        model_type = model_info.get('model_type', 'pytorch')
+
+        if model_type == 'sklearn':
+            models_rge[model_name] = (
+                model_info['model'],
+                x_final_val,
+                feature_names,
+                model_info['prob'],
+                model_info['model'].classes_,
+                'sklearn',
+                None
+            )
+
+        elif model_type == 'pytorch':
+            models_rge[model_name] = (
+                model_info['model'],
+                x_final_val,
+                feature_names,
+                model_info['prob'],
+                class_order,
+                'pytorch',
+                device
+            )
+
+        else:
+            raise ValueError(f'Unknown model_type for {model_name}: {model_type}')
 
     results_rge = compare_models_rge_tabular(
         models_dict=models_rge,

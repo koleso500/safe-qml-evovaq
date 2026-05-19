@@ -13,7 +13,7 @@ def make_vqc_circuit(n_qubits: int):
         qml.StronglyEntanglingLayers(weights, wires=range(n_qubits))
         return [qml.expval(qml.PauliZ(i)) for i in range(n_qubits)]
 
-    return vqc_circuit
+    return vqc_circuit, dev
 
 
 class QuantumClassifier(nn.Module):
@@ -23,7 +23,7 @@ class QuantumClassifier(nn.Module):
         self.n_qubits = n_qubits
         self.n_layers = n_layers
 
-        self.vqc_circuit = make_vqc_circuit(n_qubits)
+        self.vqc_circuit, self.q_device = make_vqc_circuit(n_qubits)
         weight_shapes = {'weights': (n_layers, n_qubits, 3)}
 
         self.pre_pqc = nn.Linear(input_dim, 2 ** n_qubits)

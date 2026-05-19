@@ -8,7 +8,7 @@ hmda:
   raw_csv: data/hmda_2017_ny_all-records_labels.csv
   target: action_taken
   create_sample: True
-  sample_fraction: 0.1
+  sample_fraction: 0.3
 
 # Reproducibility
 seed: 42
@@ -37,9 +37,10 @@ safe:
 
 # Evovaq
 evovaq:
-  population_size: 20
-  max_gen: 30
+  population_size: 40
+  max_gen: 50
   batch_size: 64
+  max_nfev:
 
   init_sigma: 0.03
   bounds_delta: 3.14159
@@ -58,3 +59,9 @@ evovaq:
 
   adapt_epochs: 3
   adapt_lr: 0.001
+
+  fitness_mode: log_loss   # options: log_loss, robust_log_loss
+  robustness_alpha: 0.5
+  robustness_sigma: 0.3
+
+  seeds: [1, 2, 3, 4, 5]

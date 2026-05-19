@@ -1,7 +1,9 @@
+import random
 import time
 from functools import partial
 
 import numpy as np
+import pennylane as qml
 from evovaq.GeneticAlgorithm import GA
 from evovaq.problem import Problem
 from evovaq.tools.operators import cx_uniform, mut_gaussian, sel_tournament
@@ -10,22 +12,48 @@ from sklearn.metrics import log_loss
 from src.qml_model import get_quantum_weights_flat, predict_proba_qml
 
 
-def evovaq_cost_function(params, qml_model, eval_data, eval_labels, device):
+def evovaq_cost_function(params, qml_model, eval_data, eval_labels, device, evovaq_cfg):
     old_weights = get_quantum_weights_flat(qml_model).copy()
 
     try:
         qml_model.set_quantum_weights_flat(params)
         qml_model.eval()
 
-        probs_full = predict_proba_qml(qml_model, eval_data, device)
+        probs_clean = predict_proba_qml(qml_model, eval_data, device)
 
-        return float(
+        clean_loss = float(
             log_loss(
                 eval_labels,
-                probs_full,
+                probs_clean,
                 labels=np.arange(qml_model.fc.out_features)
             )
         )
+
+        fitness_mode = evovaq_cfg['fitness_mode']
+
+        if fitness_mode == 'log_loss':
+            return clean_loss
+
+        if fitness_mode == 'robust_log_loss':
+            alpha = float(evovaq_cfg['robustness_alpha'])
+            sigma = float(evovaq_cfg['robustness_sigma'])
+
+            noise = np.random.normal(
+                loc=0.0,
+                scale=sigma,
+                size=eval_data.shape
+            ).astype(np.float32)
+
+            eval_data_noisy = eval_data + noise
+            probs_noisy = predict_proba_qml(qml_model, eval_data_noisy, device)
+
+            stability_penalty = float(
+                np.mean((probs_clean - probs_noisy) ** 2)
+            )
+
+            return clean_loss + alpha * stability_penalty
+
+        raise ValueError(f'Unknown EVOVAQ fitness_mode: {fitness_mode}')
 
     finally:
         qml_model.set_quantum_weights_flat(old_weights)
@@ -68,20 +96,20 @@ def train_quantum_with_evovaq(
 
     n_params = n_layers * n_qubits * 3
 
-    pop_size = int(evovaq_cfg.get('population_size', 16))
-    max_gen = int(evovaq_cfg.get('max_gen', 20))
-    init_sigma = float(evovaq_cfg.get('init_sigma', 0.03))
-    bounds_delta = float(evovaq_cfg.get('bounds_delta', np.pi))
+    pop_size = int(evovaq_cfg['population_size'])
+    max_gen = int(evovaq_cfg['max_gen'])
+    init_sigma = float(evovaq_cfg['init_sigma'])
+    bounds_delta = float(evovaq_cfg['bounds_delta'])
 
-    cxpb = float(evovaq_cfg.get('crossover_probability', 0.9))
-    cx_indpb = float(evovaq_cfg.get('crossover_individual_probability', 0.5))
-    mutpb = float(evovaq_cfg.get('mutation_probability', 1.0))
-    mutation_mu = float(evovaq_cfg.get('mutation_mu', 0.0))
-    mutation_sigma = float(evovaq_cfg.get('mutation_sigma', 0.03))
-    mut_indpb = float(evovaq_cfg.get('mutation_individual_probability', 0.25))
-    tournsize = int(evovaq_cfg.get('tournament_size', 3))
+    cxpb = float(evovaq_cfg['crossover_probability'])
+    cx_indpb = float(evovaq_cfg['crossover_individual_probability'])
+    mutpb = float(evovaq_cfg['mutation_probability'])
+    mutation_mu = float(evovaq_cfg['mutation_mu'])
+    mutation_sigma = float(evovaq_cfg['mutation_sigma'])
+    mut_indpb = float(evovaq_cfg['mutation_individual_probability'])
+    tournsize = int(evovaq_cfg['tournament_size'])
 
-    max_nfev = evovaq_cfg.get('max_nfev', None)
+    max_nfev = evovaq_cfg['max_nfev']
     if max_nfev is not None:
         max_nfev = int(max_nfev)
 
@@ -90,7 +118,8 @@ def train_quantum_with_evovaq(
         qml_model=qml_model,
         eval_data=x_evo_val,
         eval_labels=y_evo_val,
-        device=device
+        device=device,
+        evovaq_cfg=evovaq_cfg
     )
 
     center = get_quantum_weights_flat(qml_model).astype(np.float32)
@@ -120,6 +149,9 @@ def train_quantum_with_evovaq(
         mut_indpb=mut_indpb
     )
 
+    np.random.seed(seed)
+    random.seed(seed)
+
     initial_pop = make_initial_pop_around_current_weights(
         qml_model,
         pop_size=pop_size,
@@ -129,18 +161,21 @@ def train_quantum_with_evovaq(
 
     start = time.time()
 
-    res = optimizer.optimize(
-        problem,
-        pop_size=pop_size,
-        initial_pop=initial_pop,
-        max_nfev=max_nfev,
-        max_gen=max_gen,
-        seed=seed,
-        n_run=1,
-        verbose=True
-    )
+    with qml.Tracker(qml_model.q_device) as tracker:
+        res = optimizer.optimize(
+            problem,
+            pop_size=pop_size,
+            initial_pop=initial_pop,
+            max_nfev=max_nfev,
+            max_gen=max_gen,
+            seed=seed,
+            n_run=1,
+            verbose=True
+        )
 
     end = time.time()
+
+    print('PennyLane tracker total:', tracker.totals)
 
     qml_model.set_quantum_weights_flat(res.x)
 
@@ -154,18 +189,21 @@ def train_quantum_with_evovaq(
         'cx_indpb': float(cx_indpb),
         'mutpb': float(mutpb),
         'mutation_sigma': float(mutation_sigma),
-        'mut_indpb': float(mut_indpb)
+        'mut_indpb': float(mut_indpb),
+        'fitness_mode': evovaq_cfg['fitness_mode'],
+        'robustness_alpha': float(evovaq_cfg['robustness_alpha']),
+        'robustness_sigma': float(evovaq_cfg['robustness_sigma'])
     }
-
-    print(f'EVOVAQ final best fitness: {float(res.fun):.6f}')
-    print(f'EVOVAQ nfev: {res.nfev}')
-    print(f'EVOVAQ generations: {res.gen}')
-    print(f'EVOVAQ training time: {end - start:.3f} sec')
 
     for param in qml_model.pre_pqc.parameters():
         param.requires_grad = True
 
     for param in qml_model.fc.parameters():
         param.requires_grad = True
+
+    print(f'EVOVAQ final best fitness: {float(res.fun):.6f}')
+    print(f'EVOVAQ nfev: {res.nfev}')
+    print(f'EVOVAQ generations: {res.gen}')
+    print(f'EVOVAQ training time: {end - start:.3f} sec')
 
     return qml_model, evovaq_info
