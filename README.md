@@ -12,12 +12,6 @@ The EVOVAQ branch first trains the classical layers, then freezes them and optim
 
 ## Evaluation
 
-Each fold splits into:
-
-- train_inner: Adam training
-- evo_val: EVOVAQ fitness
-- final_val: final evaluation
-
 The reported models are:
 
 - QML Adam
