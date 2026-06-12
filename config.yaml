@@ -1,67 +1,80 @@
-# Paths
-paths:
-  csv_dir: tables
-  fig_hmda_dir: figures_hmda
+seed: 42
 
-# Data
+paths:
+  fig_hmda_dir: results/figures_hmda
+  csv_dir: results/csv
+
 hmda:
   raw_csv: data/hmda_2017_ny_all-records_labels.csv
   target: action_taken
-  create_sample: True
+  create_sample: true
   sample_fraction: 0.3
 
-# Reproducibility
-seed: 42
+experiment:
+  test_size: 0.2
+  stratify_split: true
+  run_seeds: [42, 43, 44, 45, 46]
 
-# Cross-validation
-cross_validation:
-  n_splits: 5
+logistic_regression:
+  C: 1.0
+  solver: lbfgs
+  class_weight: balanced
+  max_iter: 1000
 
-# Training
+random_forest:
+  n_estimators: 300
+  max_depth: null
+  min_samples_leaf: 5
+  class_weight: balanced
+  n_jobs: 1
+
 training:
   epochs: 20
   batch_size: 32
   learning_rate: 0.003
 
-# Quantum Model
 quantum:
   n_qubits: 5
-  n_layers: 1
+  layers: [1, 2, 3, 4, 5]
 
-# SAFE AI Metrics
-safe:
-  n_segments: 10
-  rge_tabular_n_steps:
-  rge_tabular_masking_method: greedy
-  rge_tabular_baseline: mean
+  noise_enabled: false
+  noise_type: depolarizing
+  noise_prob: 0.0
 
-# Evovaq
 evovaq:
-  population_size: 40
-  max_gen: 50
-  batch_size: 64
-  max_nfev:
+  population_size: 10
+  max_gen: 30
+  tournament_size: 3
+  max_nfev: null
 
-  init_sigma: 0.03
-  bounds_delta: 3.14159
+  init_sigma: 0.1
+  bounds_delta: 3.141592653589793
 
   crossover_probability: 0.9
   crossover_individual_probability: 0.5
 
   mutation_probability: 1.0
   mutation_mu: 0.0
-  mutation_sigma: 0.2
+  mutation_sigma: 0.1
   mutation_individual_probability: 0.15
 
-  tournament_size: 5
-
-  inner_evo_val_size: 0.2
+  fitness_mode: log_loss
+  robustness_alpha: 0.0
+  robustness_sigma: 0.0
 
   adapt_epochs: 3
   adapt_lr: 0.001
 
-  fitness_mode: log_loss   # options: log_loss, robust_log_loss
-  robustness_alpha: 0.5
-  robustness_sigma: 0.3
+safe:
+  enabled: true
 
-  seeds: [1, 2, 3, 4, 5]
+  n_segments: 10
+  rga_curve_method: removal
+
+  rgr_noise_min: 0.0
+  rgr_noise_max: 1.0
+  rgr_noise_points: 11
+
+  rge_tabular_n_steps: null
+  rge_tabular_masking_method: greedy
+  rge_tabular_baseline: zero

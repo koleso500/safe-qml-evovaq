@@ -6,7 +6,8 @@ pennylane==0.44.0
 PyYAML==6.0.3
 scikit-learn==1.8.0
 adversarial-robustness-toolbox==1.20.1
-evovaq==1.1.5
+evovaq==1.2.1
+safe-ai-metrics==0.2.1
 
 # PyTorch with CUDA 11.8 support
 --extra-index-url https://download.pytorch.org/whl/cu118
