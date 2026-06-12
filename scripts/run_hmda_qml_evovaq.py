@@ -185,61 +185,6 @@ def summarize_results(results_df):
     return summary
 
 
-def plot_metric_boxplots(results_df, fig_dir, suffix):
-    import matplotlib
-    matplotlib.use('Agg')
-    import matplotlib.pyplot as plt
-
-    available_metrics = [
-        col for col in METRIC_COLUMNS
-        if col in results_df.columns
-    ]
-
-    plot_df = results_df.copy()
-    plot_df['group'] = (
-        'L'
-        + plot_df['n_layers'].astype(str)
-        + ' | '
-        + plot_df['model'].astype(str)
-    )
-
-    output_paths = []
-
-    for metric in available_metrics:
-        metric_df = plot_df[['group', metric]].dropna()
-
-        if metric_df.empty:
-            continue
-
-        labels = list(metric_df['group'].drop_duplicates())
-
-        data = [
-            metric_df.loc[
-                metric_df['group'] == label,
-                metric
-            ].to_numpy(dtype=float)
-            for label in labels
-        ]
-
-        fig_width = max(10, 0.45 * len(labels))
-
-        fig, ax = plt.subplots(figsize=(fig_width, 6))
-        ax.boxplot(data, labels=labels, showmeans=True)
-        ax.set_title(f'{metric.upper()} distribution over repeated runs')
-        ax.set_ylabel(metric)
-        ax.tick_params(axis='x', labelrotation=75)
-        ax.grid(axis='y', alpha=0.3)
-        fig.tight_layout()
-
-        out_path = fig_dir / f'boxplot_{metric}_{suffix}.png'
-        fig.savefig(out_path, dpi=300, bbox_inches='tight')
-        plt.close(fig)
-
-        output_paths.append(out_path)
-
-    return output_paths
-
-
 def build_safe_model_entry(model, prob, model_type, class_order):
     return {
         'model': model,
@@ -751,20 +696,11 @@ def main():
     results_df.to_csv(per_run_csv, index=False)
     summary_df.to_csv(summary_csv, index=False)
 
-    boxplot_paths = plot_metric_boxplots(
-        results_df,
-        fig_dir,
-        suffix=suffix
-    )
-
     print('\n================ SUMMARY ================')
     print(summary_df.to_string(index=False))
 
     print(f'\nSaved per-run results to: {per_run_csv}')
     print(f'Saved summary to: {summary_csv}')
-
-    for path in boxplot_paths:
-        print(f'Saved boxplot: {path}')
 
 
 if __name__ == '__main__':
