@@ -8,18 +8,12 @@ hmda:
   raw_csv: data/hmda_2017_ny_all-records_labels.csv
   target: action_taken
   create_sample: true
-  sample_fraction: 0.3
+  sample_fraction: 0.1
 
 experiment:
   test_size: 0.2
   stratify_split: true
   run_seeds: [42, 43, 44, 45, 46]
-
-logistic_regression:
-  C: 1.0
-  solver: lbfgs
-  class_weight: balanced
-  max_iter: 1000
 
 random_forest:
   n_estimators: 300
@@ -32,10 +26,11 @@ training:
   epochs: 20
   batch_size: 32
   learning_rate: 0.003
+  class_weight_balanced: true
 
 quantum:
-  n_qubits: 5
-  layers: [1, 2, 3, 4, 5]
+  n_qubits: [4]
+  layers: [2]
 
   noise_enabled: false
   noise_type: depolarizing
@@ -58,7 +53,7 @@ evovaq:
   mutation_sigma: 0.1
   mutation_individual_probability: 0.15
 
-  fitness_mode: log_loss
+  fitness_mode: weighted_log_loss
   robustness_alpha: 0.0
   robustness_sigma: 0.0
 

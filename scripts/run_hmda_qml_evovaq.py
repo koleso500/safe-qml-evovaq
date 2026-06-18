@@ -7,7 +7,6 @@ import pandas as pd
 import pennylane as qml
 import yaml
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import log_loss
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -23,7 +22,6 @@ from src.utils import ensure_dir, get_device, set_global_seed
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 MODEL_NAMES = [
-    'Logistic Regression',
     'Random Forest',
     'QML Adam',
     'QML EVOVAQ',
@@ -48,6 +46,7 @@ def parse_args():
     parser.add_argument('--config', type=str, default='config.yaml')
     parser.add_argument('--run-index', type=int, default=None)
     parser.add_argument('--layers', type=str, default=None)
+    parser.add_argument('--qubits', type=str, default=None)
 
     return parser.parse_args()
 
@@ -82,6 +81,18 @@ def get_layer_values(args, quantum_cfg):
         raise ValueError('Quantum layers must contain at least one value.')
 
     return layer_values
+
+
+def get_qubit_values(args, quantum_cfg):
+    if args.qubits is not None:
+        qubit_values = as_list_of_ints(args.qubits)
+    else:
+        qubit_values = as_list_of_ints(quantum_cfg['n_qubits'])
+
+    if not qubit_values:
+        raise ValueError('Quantum qubits must contain at least one value.')
+
+    return qubit_values
 
 
 def safe_log_loss_value(y_true, probs):
@@ -172,7 +183,7 @@ def summarize_results(results_df):
     summary = (
         results_df
         .groupby(
-            ['n_layers', 'n_quantum_params', 'model'],
+            ['n_qubits', 'n_layers', 'n_quantum_params', 'model'],
             dropna=False
         )
         .agg(
@@ -192,18 +203,6 @@ def build_safe_model_entry(model, prob, model_type, class_order):
         'model_type': model_type,
         'class_order': class_order
     }
-
-
-def make_logistic_regression(config, run_seed):
-    log_cfg = config['logistic_regression']
-
-    return LogisticRegression(
-        C=float(log_cfg['C']),
-        solver=str(log_cfg['solver']),
-        class_weight=log_cfg['class_weight'],
-        max_iter=int(log_cfg['max_iter']),
-        random_state=run_seed
-    )
 
 
 def make_random_forest(config, run_seed):
@@ -264,6 +263,7 @@ def main():
         run_seeds = [run_seeds[args.run_index - 1]]
 
     layer_values = get_layer_values(args, quantum_cfg)
+    qubit_values = get_qubit_values(args, quantum_cfg)
 
     test_size = float(experiment_cfg['test_size'])
     stratify_split = bool(experiment_cfg['stratify_split'])
@@ -271,8 +271,8 @@ def main():
     epochs = int(training_cfg['epochs'])
     batch_size_train = int(training_cfg['batch_size'])
     lr_torch = float(training_cfg['learning_rate'])
+    class_weight_balanced = bool(training_cfg['class_weight_balanced'])
 
-    n_qubits = int(quantum_cfg['n_qubits'])
     noise_enabled = bool(quantum_cfg['noise_enabled'])
     noise_type = str(quantum_cfg['noise_type'])
     noise_prob = float(quantum_cfg['noise_prob'])
@@ -302,14 +302,14 @@ def main():
         f'n_runs={len(run_seeds)} | '
         f'test_size={test_size} | '
         f'layers={layer_values} | '
-        f'n_qubits={n_qubits}'
+        f'n_qubits={qubit_values}'
     )
 
     print(
         'EVOVAQ fixed params | '
-        f'population_size={evovaq_cfg['population_size']} | '
-        f'max_gen={evovaq_cfg['max_gen']} | '
-        f'tournament_size={evovaq_cfg['tournament_size']}'
+        f"population_size={evovaq_cfg['population_size']} | "
+        f"max_gen={evovaq_cfg['max_gen']} | "
+        f"tournament_size={evovaq_cfg['tournament_size']}"
     )
 
     print(
@@ -355,13 +355,6 @@ def main():
 
         input_dim = x_train.shape[1]
 
-        print('\n--- Logistic Regression ---')
-        log_model = make_logistic_regression(config, run_seed)
-        log_model.fit(x_train, y_train)
-
-        prob_logreg_train = log_model.predict_proba(x_train)
-        prob_logreg_test = log_model.predict_proba(x_test)
-
         print('\n--- Random Forest ---')
         rf_model = make_random_forest(config, run_seed)
         rf_model.fit(x_train, y_train)
@@ -369,326 +362,314 @@ def main():
         prob_rf_train = rf_model.predict_proba(x_train)
         prob_rf_test = rf_model.predict_proba(x_test)
 
-        for n_layers in layer_values:
-            n_layers = int(n_layers)
+        for n_qubits in qubit_values:
+            n_qubits = int(n_qubits)
 
-            print(
-                f'\n================ QML LAYERS | '
-                f'n_layers={n_layers} | ================'
-            )
+            for n_layers in layer_values:
+                n_layers = int(n_layers)
 
-            run_rows = []
+                print(
+                    f'\n================ QML CONFIG | '
+                    f'n_qubits={n_qubits} | '
+                    f'n_layers={n_layers} | ================'
+                )
 
-            add_standard_row(
-                run_rows,
-                run_id=run_id,
-                run_seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                model_name='Logistic Regression',
-                y_train=y_train,
-                prob_train=prob_logreg_train,
-                y_test=y_test,
-                prob_test=prob_logreg_test
-            )
+                run_rows = []
 
-            add_standard_row(
-                run_rows,
-                run_id=run_id,
-                run_seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                model_name='Random Forest',
-                y_train=y_train,
-                prob_train=prob_rf_train,
-                y_test=y_test,
-                prob_test=prob_rf_test
-            )
+                add_standard_row(
+                    run_rows,
+                    run_id=run_id,
+                    run_seed=run_seed,
+                    n_layers=n_layers,
+                    n_qubits=n_qubits,
+                    model_name='Random Forest',
+                    y_train=y_train,
+                    prob_train=prob_rf_train,
+                    y_test=y_test,
+                    prob_test=prob_rf_test
+                )
 
-            set_global_seed(run_seed + 1000 * n_layers)
+                set_global_seed(run_seed + 1000 * n_layers + 10000 * n_qubits)
 
-            base_model = QuantumClassifier(
-                input_dim=input_dim,
-                num_classes=n_classes,
-                n_qubits=n_qubits,
-                n_layers=n_layers,
-                noise_enabled=noise_enabled,
-                noise_type=noise_type,
-                noise_prob=noise_prob
-            ).to(device)
+                base_model = QuantumClassifier(
+                    input_dim=input_dim,
+                    num_classes=n_classes,
+                    n_qubits=n_qubits,
+                    n_layers=n_layers,
+                    noise_enabled=noise_enabled,
+                    noise_type=noise_type,
+                    noise_prob=noise_prob
+                ).to(device)
 
-            print('\n--- QML Adam ---')
+                print('\n--- QML Adam ---')
 
-            qml_adam = copy.deepcopy(base_model)
+                qml_adam = copy.deepcopy(base_model)
 
-            with qml.Tracker(qml_adam.q_device) as adam_tracker:
-                qml_adam = train_model(
+                with qml.Tracker(qml_adam.q_device) as adam_tracker:
+                    qml_adam = train_model(
+                        qml_adam,
+                        x_train,
+                        y_train,
+                        epochs=epochs,
+                        batch_size=batch_size_train,
+                        lr=lr_torch,
+                        device=device,
+                        label_prefix=f'QML Adam Q{n_qubits} L{n_layers}',
+                        use_validation=False,
+                        class_weight_balanced=class_weight_balanced
+                    )
+
+                print('Adam tracker total:', adam_tracker.totals)
+
+                prob_adam_train = predict_proba_qml(
                     qml_adam,
+                    x_train,
+                    device
+                )
+
+                prob_adam_test = predict_proba_qml(
+                    qml_adam,
+                    x_test,
+                    device
+                )
+
+                add_standard_row(
+                    run_rows,
+                    run_id=run_id,
+                    run_seed=run_seed,
+                    n_layers=n_layers,
+                    n_qubits=n_qubits,
+                    model_name='QML Adam',
+                    y_train=y_train,
+                    prob_train=prob_adam_train,
+                    y_test=y_test,
+                    prob_test=prob_adam_test,
+                    extra={
+                        'adam_tracker_executions': adam_tracker.totals.get(
+                            'executions',
+                            np.nan
+                        ),
+                        'adam_tracker_batches': adam_tracker.totals.get(
+                            'batches',
+                            np.nan
+                        )
+                    }
+                )
+
+                print('\n--- QML EVOVAQ: classical part ---')
+
+                qml_evovaq_start = copy.deepcopy(base_model)
+
+                qml_evovaq_start = train_model(
+                    qml_evovaq_start,
                     x_train,
                     y_train,
                     epochs=epochs,
                     batch_size=batch_size_train,
                     lr=lr_torch,
                     device=device,
-                    label_prefix=f'QML Adam L{n_layers}',
-                    use_validation=False
+                    trainable_params=(
+                            list(qml_evovaq_start.pre_pqc.parameters())
+                            + list(qml_evovaq_start.fc.parameters())
+                    ),
+                    freeze_params=qml_evovaq_start.q_layer.parameters(),
+                    label_prefix=f'QML EVOVAQ start Q{n_qubits} L{n_layers}',
+                    use_validation=False,
+                    class_weight_balanced=class_weight_balanced
                 )
 
-            print('Adam tracker total:', adam_tracker.totals)
+                initial_evovaq_state = copy.deepcopy(
+                    qml_evovaq_start.state_dict()
+                )
 
-            prob_adam_train = predict_proba_qml(
-                qml_adam,
-                x_train,
-                device
-            )
+                initial_train_loss = evaluate_qml_log_loss(
+                    qml_evovaq_start,
+                    x_train,
+                    y_train,
+                    device
+                )
 
-            prob_adam_test = predict_proba_qml(
-                qml_adam,
-                x_test,
-                device
-            )
+                initial_test_loss = evaluate_qml_log_loss(
+                    qml_evovaq_start,
+                    x_test,
+                    y_test,
+                    device
+                )
 
-            add_standard_row(
-                run_rows,
-                run_id=run_id,
-                run_seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                model_name='QML Adam',
-                y_train=y_train,
-                prob_train=prob_adam_train,
-                y_test=y_test,
-                prob_test=prob_adam_test,
-                extra={
-                    'adam_tracker_executions': adam_tracker.totals.get(
-                        'executions',
-                        np.nan
-                    ),
-                    'adam_tracker_batches': adam_tracker.totals.get(
-                        'batches',
-                        np.nan
-                    )
-                }
-            )
+                print(
+                    f'EVOVAQ start | '
+                    f'train_log_loss={initial_train_loss:.4f} | '
+                    f'test_log_loss={initial_test_loss:.4f}'
+                )
 
-            print('\n--- QML EVOVAQ: classical part ---')
+                print('\n--- QML EVOVAQ: optimization part ---')
 
-            qml_evovaq_start = copy.deepcopy(base_model)
+                qml_evovaq = copy.deepcopy(base_model)
+                qml_evovaq.load_state_dict(initial_evovaq_state)
 
-            qml_evovaq_start = train_model(
-                qml_evovaq_start,
-                x_train,
-                y_train,
-                epochs=epochs,
-                batch_size=batch_size_train,
-                lr=lr_torch,
-                device=device,
-                trainable_params=(
-                    list(qml_evovaq_start.pre_pqc.parameters())
-                    + list(qml_evovaq_start.fc.parameters())
-                ),
-                freeze_params=qml_evovaq_start.q_layer.parameters(),
-                label_prefix=f'QML EVOVAQ warm start L{n_layers}',
-                use_validation=False
-            )
-
-            initial_evovaq_state = copy.deepcopy(
-                qml_evovaq_start.state_dict()
-            )
-
-            initial_train_loss = evaluate_qml_log_loss(
-                qml_evovaq_start,
-                x_train,
-                y_train,
-                device
-            )
-
-            initial_test_loss = evaluate_qml_log_loss(
-                qml_evovaq_start,
-                x_test,
-                y_test,
-                device
-            )
-
-            print(
-                f'EVOVAQ warm start | '
-                f'train_log_loss={initial_train_loss:.4f} | '
-                f'test_log_loss={initial_test_loss:.4f}'
-            )
-
-            print('\n--- QML EVOVAQ: optimization part ---')
-
-            qml_evovaq = copy.deepcopy(base_model)
-            qml_evovaq.load_state_dict(initial_evovaq_state)
-
-            qml_evovaq, evovaq_info = train_quantum_with_evovaq(
-                qml_evovaq,
-                x_train,
-                y_train,
-                seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                evovaq_cfg=evovaq_cfg,
-                device=device
-            )
-
-            qml_after_evovaq = copy.deepcopy(qml_evovaq)
-
-            prob_evovaq_train = predict_proba_qml(
-                qml_after_evovaq,
-                x_train,
-                device
-            )
-
-            prob_evovaq_test = predict_proba_qml(
-                qml_after_evovaq,
-                x_test,
-                device
-            )
-
-            add_standard_row(
-                run_rows,
-                run_id=run_id,
-                run_seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                model_name='QML EVOVAQ',
-                y_train=y_train,
-                prob_train=prob_evovaq_train,
-                y_test=y_test,
-                prob_test=prob_evovaq_test,
-                extra={
-                    'initial_train_log_loss': initial_train_loss,
-                    'initial_test_log_loss': initial_test_loss,
-                    **{
-                        f'evovaq_{key}': value
-                        for key, value in evovaq_info.items()
-                    }
-                }
-            )
-
-            print('\n--- QML EVOVAQ+Adaptation ---')
-
-            qml_evovaq = train_model(
-                qml_evovaq,
-                x_train,
-                y_train,
-                epochs=evovaq_adapt_epochs,
-                batch_size=batch_size_train,
-                lr=evovaq_adapt_lr,
-                device=device,
-                trainable_params=(
-                    list(qml_evovaq.pre_pqc.parameters())
-                    + list(qml_evovaq.fc.parameters())
-                ),
-                freeze_params=qml_evovaq.q_layer.parameters(),
-                label_prefix=f'QML EVOVAQ+Adaptation L{n_layers}',
-                use_validation=False
-            )
-
-            qml_evovaq_adapted = copy.deepcopy(qml_evovaq)
-
-            prob_adapted_train = predict_proba_qml(
-                qml_evovaq_adapted,
-                x_train,
-                device
-            )
-
-            prob_adapted_test = predict_proba_qml(
-                qml_evovaq_adapted,
-                x_test,
-                device
-            )
-
-            add_standard_row(
-                run_rows,
-                run_id=run_id,
-                run_seed=run_seed,
-                n_layers=n_layers,
-                n_qubits=n_qubits,
-                model_name='QML EVOVAQ+Adaptation',
-                y_train=y_train,
-                prob_train=prob_adapted_train,
-                y_test=y_test,
-                prob_test=prob_adapted_test,
-                extra={
-                    'initial_train_log_loss': initial_train_loss,
-                    'initial_test_log_loss': initial_test_loss,
-                    **{
-                        f'evovaq_{key}': value
-                        for key, value in evovaq_info.items()
-                    }
-                }
-            )
-
-            if safe_enabled:
-                safe_models = {
-                    'Logistic Regression': build_safe_model_entry(
-                        log_model,
-                        prob_logreg_test,
-                        'sklearn',
-                        class_order
-                    ),
-                    'Random Forest': build_safe_model_entry(
-                        rf_model,
-                        prob_rf_test,
-                        'sklearn',
-                        class_order
-                    ),
-                    'QML Adam': build_safe_model_entry(
-                        qml_adam,
-                        prob_adam_test,
-                        'pytorch',
-                        class_order
-                    ),
-                    'QML EVOVAQ': build_safe_model_entry(
-                        qml_after_evovaq,
-                        prob_evovaq_test,
-                        'pytorch',
-                        class_order
-                    ),
-                    'QML EVOVAQ+Adaptation': build_safe_model_entry(
-                        qml_evovaq_adapted,
-                        prob_adapted_test,
-                        'pytorch',
-                        class_order
-                    )
-                }
-
-                run_label = f'run{run_id}_seed{run_seed}_L{n_layers}'
-
-                safe_store = evaluate_qml_safe_metrics(
-                    safe_models=safe_models,
-                    x_final_test=x_test,
-                    y_final_test=y_test,
-                    feature_names=feature_names,
-                    class_order=class_order,
-                    n_segments=n_segments,
-                    noise_levels=noise_levels,
-                    rge_n_steps=rge_n_steps,
-                    rge_masking_method=rge_masking_method,
-                    rge_baseline=rge_baseline,
-                    fig_dir=fig_dir,
-                    run_label=run_label,
+                qml_evovaq, evovaq_info = train_quantum_with_evovaq(
+                    qml_evovaq,
+                    x_train,
+                    y_train,
                     seed=run_seed,
-                    device=device,
-                    rga_curve_method=rga_curve_method
+                    n_layers=n_layers,
+                    n_qubits=n_qubits,
+                    evovaq_cfg=evovaq_cfg,
+                    device=device
                 )
 
-                merge_safe_metrics(run_rows, safe_store)
+                qml_after_evovaq = copy.deepcopy(qml_evovaq)
 
-            all_rows.extend(run_rows)
+                prob_evovaq_train = predict_proba_qml(
+                    qml_after_evovaq,
+                    x_train,
+                    device
+                )
 
-            partial_df = pd.DataFrame(all_rows)
-            partial_csv = csv_dir / 'hmda_qml_evovaq_per_run_partial.csv'
-            partial_df.to_csv(partial_csv, index=False)
+                prob_evovaq_test = predict_proba_qml(
+                    qml_after_evovaq,
+                    x_test,
+                    device
+                )
 
-            print(f'Partial results saved to: {partial_csv}')
+                add_standard_row(
+                    run_rows,
+                    run_id=run_id,
+                    run_seed=run_seed,
+                    n_layers=n_layers,
+                    n_qubits=n_qubits,
+                    model_name='QML EVOVAQ',
+                    y_train=y_train,
+                    prob_train=prob_evovaq_train,
+                    y_test=y_test,
+                    prob_test=prob_evovaq_test,
+                    extra={
+                        'initial_train_log_loss': initial_train_loss,
+                        'initial_test_log_loss': initial_test_loss,
+                        **{
+                            f'evovaq_{key}': value
+                            for key, value in evovaq_info.items()
+                        }
+                    }
+                )
+
+                print('\n--- QML EVOVAQ+Adaptation ---')
+
+                qml_evovaq = train_model(
+                    qml_evovaq,
+                    x_train,
+                    y_train,
+                    epochs=evovaq_adapt_epochs,
+                    batch_size=batch_size_train,
+                    lr=evovaq_adapt_lr,
+                    device=device,
+                    trainable_params=(
+                            list(qml_evovaq.pre_pqc.parameters())
+                            + list(qml_evovaq.fc.parameters())
+                    ),
+                    freeze_params=qml_evovaq.q_layer.parameters(),
+                    label_prefix=f'QML EVOVAQ+Adaptation Q{n_qubits} L{n_layers}',
+                    use_validation=False,
+                    class_weight_balanced=class_weight_balanced
+                )
+
+                qml_evovaq_adapted = copy.deepcopy(qml_evovaq)
+
+                prob_adapted_train = predict_proba_qml(
+                    qml_evovaq_adapted,
+                    x_train,
+                    device
+                )
+
+                prob_adapted_test = predict_proba_qml(
+                    qml_evovaq_adapted,
+                    x_test,
+                    device
+                )
+
+                add_standard_row(
+                    run_rows,
+                    run_id=run_id,
+                    run_seed=run_seed,
+                    n_layers=n_layers,
+                    n_qubits=n_qubits,
+                    model_name='QML EVOVAQ+Adaptation',
+                    y_train=y_train,
+                    prob_train=prob_adapted_train,
+                    y_test=y_test,
+                    prob_test=prob_adapted_test,
+                    extra={
+                        'initial_train_log_loss': initial_train_loss,
+                        'initial_test_log_loss': initial_test_loss,
+                        **{
+                            f'evovaq_{key}': value
+                            for key, value in evovaq_info.items()
+                        }
+                    }
+                )
+
+                if safe_enabled:
+                    safe_models = {
+                        'Random Forest': build_safe_model_entry(
+                            rf_model,
+                            prob_rf_test,
+                            'sklearn',
+                            class_order
+                        ),
+                        'QML Adam': build_safe_model_entry(
+                            qml_adam,
+                            prob_adam_test,
+                            'pytorch',
+                            class_order
+                        ),
+                        'QML EVOVAQ': build_safe_model_entry(
+                            qml_after_evovaq,
+                            prob_evovaq_test,
+                            'pytorch',
+                            class_order
+                        ),
+                        'QML EVOVAQ+Adaptation': build_safe_model_entry(
+                            qml_evovaq_adapted,
+                            prob_adapted_test,
+                            'pytorch',
+                            class_order
+                        )
+                    }
+
+                    run_label = f'run{run_id}_seed{run_seed}_Q{n_qubits}_L{n_layers}'
+
+                    safe_store = evaluate_qml_safe_metrics(
+                        safe_models=safe_models,
+                        x_final_test=x_test,
+                        y_final_test=y_test,
+                        feature_names=feature_names,
+                        class_order=class_order,
+                        n_segments=n_segments,
+                        noise_levels=noise_levels,
+                        rge_n_steps=rge_n_steps,
+                        rge_masking_method=rge_masking_method,
+                        rge_baseline=rge_baseline,
+                        fig_dir=fig_dir,
+                        run_label=run_label,
+                        seed=run_seed,
+                        device=device,
+                        rga_curve_method=rga_curve_method
+                    )
+
+                    merge_safe_metrics(run_rows, safe_store)
+
+                all_rows.extend(run_rows)
+
+                partial_df = pd.DataFrame(all_rows)
+                partial_csv = csv_dir / 'hmda_qml_evovaq_per_run_partial.csv'
+                partial_df.to_csv(partial_csv, index=False)
+
+                print(f'Partial results saved to: {partial_csv}')
 
     results_df = pd.DataFrame(all_rows)
     summary_df = summarize_results(results_df)
 
-    suffix = f'{len(run_seeds)}runs_{len(layer_values)}layers'
+    suffix = f'{len(run_seeds)}runs_{len(qubit_values)}qubits_{len(layer_values)}layers'
 
     per_run_csv = csv_dir / f'hmda_qml_evovaq_per_run_{suffix}.csv'
     summary_csv = csv_dir / f'hmda_qml_evovaq_summary_{suffix}.csv'

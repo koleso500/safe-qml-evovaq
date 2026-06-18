@@ -50,7 +50,8 @@ def train_model(
     trainable_params=None,
     freeze_params=None,
     label_prefix='Adam',
-    use_validation=False
+    use_validation=False,
+    class_weight_balanced=False
 ):
     if device is None:
         device = next(model.parameters()).device
@@ -76,7 +77,31 @@ def train_model(
 
     trainable_params = list(trainable_params)
     opt = torch.optim.Adam(trainable_params, lr=lr)
-    loss_fn = nn.CrossEntropyLoss()
+
+    if class_weight_balanced:
+        n_classes = model.fc.out_features
+
+        y_train_np = np.asarray(y_train, dtype=np.int64)
+        class_counts = np.bincount(y_train_np, minlength=n_classes).astype(np.float32)
+
+        class_weights = np.zeros(n_classes, dtype=np.float32)
+
+        for c in range(n_classes):
+            if class_counts[c] > 0:
+                class_weights[c] = len(y_train_np) / (n_classes * class_counts[c])
+
+        class_weights = torch.tensor(
+            class_weights,
+            dtype=torch.float32,
+            device=device
+        )
+
+        loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+
+        print(f'{label_prefix} class weights:', class_weights.detach().cpu().numpy())
+
+    else:
+        loss_fn = nn.CrossEntropyLoss()
 
     best_val = float('inf')
     best_state = None

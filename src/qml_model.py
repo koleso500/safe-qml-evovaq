@@ -35,12 +35,13 @@ def make_vqc_circuit(
     n_qubits: int,
     noise_enabled: bool = False,
     noise_type: str = 'depolarizing',
-    noise_prob: float = 0.0
+    noise_prob: float = 0.0,
+    diff_method: str = 'best'
 ):
     device_name = 'default.mixed' if noise_enabled else 'default.qubit'
     dev = qml.device(device_name, wires=n_qubits)
 
-    @qml.qnode(dev, interface='torch')
+    @qml.qnode(dev, interface='torch', diff_method=diff_method)
     def vqc_circuit(inputs, weights):
         qml.AmplitudeEmbedding(
             inputs,
@@ -74,7 +75,8 @@ class QuantumClassifier(nn.Module):
         n_layers: int,
         noise_enabled: bool = False,
         noise_type: str = 'depolarizing',
-        noise_prob: float = 0.0
+        noise_prob: float = 0.0,
+        diff_method: str = 'best'
     ):
         super().__init__()
 
@@ -88,7 +90,8 @@ class QuantumClassifier(nn.Module):
             n_qubits=n_qubits,
             noise_enabled=noise_enabled,
             noise_type=noise_type,
-            noise_prob=noise_prob
+            noise_prob=noise_prob,
+            diff_method=diff_method
         )
 
         weight_shapes = {

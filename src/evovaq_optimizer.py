@@ -7,9 +7,29 @@ import pennylane as qml
 from evovaq.GeneticAlgorithm import GA
 from evovaq.problem import Problem
 from evovaq.tools.operators import cx_uniform, mut_gaussian, sel_tournament
-from sklearn.metrics import log_loss
+from sklearn.metrics import log_loss, f1_score
 
 from src.qml_model import get_quantum_weights_flat, predict_proba_qml
+
+
+def make_balanced_sample_weights(y, n_classes):
+    y = np.asarray(y)
+    n_samples = len(y)
+
+    counts = np.array([
+        np.sum(y == c)
+        for c in range(n_classes)
+    ], dtype=np.float32)
+
+    class_weights = np.zeros(n_classes, dtype=np.float32)
+
+    for c in range(n_classes):
+        if counts[c] > 0:
+            class_weights[c] = n_samples / (n_classes * counts[c])
+
+    sample_weights = class_weights[y]
+
+    return sample_weights
 
 
 def evovaq_cost_function(params, qml_model, eval_data, eval_labels, device, evovaq_cfg):
@@ -21,11 +41,28 @@ def evovaq_cost_function(params, qml_model, eval_data, eval_labels, device, evov
 
         probs_clean = predict_proba_qml(qml_model, eval_data, device)
 
+        n_classes = qml_model.fc.out_features
+        labels = np.arange(n_classes)
+
         clean_loss = float(
             log_loss(
                 eval_labels,
                 probs_clean,
-                labels=np.arange(qml_model.fc.out_features)
+                labels=labels
+            )
+        )
+
+        balanced_weights = make_balanced_sample_weights(
+            eval_labels,
+            n_classes=n_classes
+        )
+
+        weighted_clean_loss = float(
+            log_loss(
+                eval_labels,
+                probs_clean,
+                labels=labels,
+                sample_weight=balanced_weights
             )
         )
 
@@ -33,6 +70,9 @@ def evovaq_cost_function(params, qml_model, eval_data, eval_labels, device, evov
 
         if fitness_mode == 'log_loss':
             return clean_loss
+
+        if fitness_mode == 'weighted_log_loss':
+            return weighted_clean_loss
 
         if fitness_mode == 'robust_log_loss':
             alpha = float(evovaq_cfg['robustness_alpha'])
@@ -207,6 +247,9 @@ def train_quantum_with_evovaq(
             'fitness_mode': evovaq_cfg['fitness_mode'],
             'robustness_alpha': float(evovaq_cfg.get('robustness_alpha', 0.0)),
             'robustness_sigma': float(evovaq_cfg.get('robustness_sigma', 0.0)),
+            'tracker_executions': int(tracker.totals.get('executions', 0)),
+            'tracker_batches': int(tracker.totals.get('batches', 0)),
+            'tracker_simulations': int(tracker.totals.get('simulations', 0)),
             'optimizer': 'ga'
         }
 
