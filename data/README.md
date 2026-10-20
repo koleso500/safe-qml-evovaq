@@ -6,4 +6,4 @@ Obtain the 2017 New York **All records** CSV with **Plain language labels and HM
 
 The reference input has 446,902 rows and 78 columns.
 
-Raw CSVs are excluded from Git and the submission archive. See the main README for preprocessing and the fixed stratified 10% sample used by the paper.
+Raw CSVs are excluded from Git and the submission archive.
