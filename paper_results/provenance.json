@@ -1,0 +1,11 @@
+{
+  "depth_per_run.csv": {
+    "source": "results/csv_layers_weighted/hmda_qml_evovaq_per_run_5runs_1qubits_5layers.csv"
+  },
+  "qubits_per_run.csv": {
+    "source": "results/csv_layers_weighted_new/hmda_qml_evovaq_per_run_5runs_5qubits_1layers.csv"
+  },
+  "q5_l5_safe_curves.csv": {
+    "source": "results/csv_q5_l5_mean/hmda_qml_evovaq_safe_curves_5runs_1qubits_1layers.csv"
+  }
+}

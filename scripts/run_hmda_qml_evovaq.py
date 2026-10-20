@@ -1,11 +1,13 @@
 import argparse
 import copy
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import pennylane as qml
 import yaml
+import torch
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import log_loss
 from sklearn.model_selection import train_test_split
@@ -47,6 +49,9 @@ def parse_args():
     parser.add_argument('--run-index', type=int, default=None)
     parser.add_argument('--layers', type=str, default=None)
     parser.add_argument('--qubits', type=str, default=None)
+    parser.add_argument('--device', choices=['auto', 'cpu', 'cuda'], default='auto')
+    parser.add_argument('--output-dir', type=Path, default=None,
+                        help='Separate output directory for a fresh or single-seed run')
 
     return parser.parse_args()
 
@@ -165,6 +170,82 @@ def merge_safe_metrics(run_rows, safe_store):
         row['aurge'] = float(safe_store[model_name]['aurge'][-1])
 
 
+def add_safe_curve_rows(
+    curve_rows,
+    *,
+    safe_store,
+    run_id,
+    run_seed,
+    n_qubits,
+    n_layers,
+    noise_levels
+):
+    name_map = {
+        'Random Forest': 'RF',
+        'QML Adam': 'E2E-QML',
+        'QML EVOVAQ': 'SWO-QML-1',
+        'QML EVOVAQ+Adaptation': 'SWO-QML-2'
+    }
+
+    for model_name, values in safe_store.items():
+        paper_name = name_map.get(model_name, model_name)
+
+        # RGA
+        y_values = np.asarray(values['rga_curve'][-1], dtype=float)
+        x_values = np.linspace(0.0, 1.0, len(y_values))
+
+        for step, (x_val, y_val) in enumerate(zip(x_values, y_values)):
+            curve_rows.append({
+                'run_id': int(run_id),
+                'run_seed': int(run_seed),
+                'n_qubits': int(n_qubits),
+                'n_layers': int(n_layers),
+                'model': paper_name,
+                'curve': 'RGA',
+                'step': int(step),
+                'x': float(x_val),
+                'value': float(y_val)
+            })
+
+        # RGR
+        y_values = np.asarray(values['rgr_curve'][-1], dtype=float)
+
+        if len(noise_levels) == len(y_values):
+            x_values = noise_levels
+        else:
+            x_values = np.linspace(0.0, 1.0, len(y_values))
+
+        for step, (x_val, y_val) in enumerate(zip(x_values, y_values)):
+            curve_rows.append({
+                'run_id': int(run_id),
+                'run_seed': int(run_seed),
+                'n_qubits': int(n_qubits),
+                'n_layers': int(n_layers),
+                'model': paper_name,
+                'curve': 'RGR',
+                'step': int(step),
+                'x': float(x_val),
+                'value': float(y_val)
+            })
+
+        # RGE
+        y_values = np.asarray(values['rge_curve'][-1], dtype=float)
+        x_values = np.linspace(0.0, 1.0, len(y_values))
+
+        for step, (x_val, y_val) in enumerate(zip(x_values, y_values)):
+            curve_rows.append({
+                'run_id': int(run_id),
+                'run_seed': int(run_seed),
+                'n_qubits': int(n_qubits),
+                'n_layers': int(n_layers),
+                'model': paper_name,
+                'curve': 'RGE',
+                'step': int(step),
+                'x': float(x_val),
+                'value': float(y_val)
+            })
+
+
 def summarize_results(results_df):
     available_metrics = [
         col for col in METRIC_COLUMNS
@@ -219,6 +300,11 @@ def make_random_forest(config, run_seed):
 
 
 def main():
+    # SAFE verbose output contains Greek symbols; redirected Windows consoles
+    # can use a legacy encoding that cannot represent them.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, 'reconfigure'):
+            stream.reconfigure(errors='backslashreplace')
     args = parse_args()
 
     config_path = PROJECT_ROOT / args.config
@@ -228,7 +314,9 @@ def main():
 
     seed = int(config['seed'])
 
-    device = get_device()
+    device = get_device() if args.device == 'auto' else torch.device(args.device)
+    if device.type == 'cuda' and not torch.cuda.is_available():
+        raise ValueError('CUDA requested but unavailable. Use --device cpu.')
     print('Using device:', device)
 
     set_global_seed(seed)
@@ -236,6 +324,9 @@ def main():
     paths_cfg = config['paths']
     fig_dir = PROJECT_ROOT / paths_cfg['fig_hmda_dir']
     csv_dir = PROJECT_ROOT / paths_cfg['csv_dir']
+    if args.output_dir is not None:
+        csv_dir = PROJECT_ROOT / args.output_dir
+        fig_dir = csv_dir / 'figures'
 
     ensure_dir(fig_dir)
     ensure_dir(csv_dir)
@@ -320,6 +411,7 @@ def main():
     )
 
     all_rows = []
+    all_curve_rows = []
 
     for run_id, run_seed in enumerate(run_seeds, start=1):
         print(
@@ -656,7 +748,19 @@ def main():
                         rga_curve_method=rga_curve_method
                     )
 
+                    # Save scalar SAFE-AI metrics
                     merge_safe_metrics(run_rows, safe_store)
+
+                    # Save pointwise SAFE-AI curves for later averaging
+                    add_safe_curve_rows(
+                        all_curve_rows,
+                        safe_store=safe_store,
+                        run_id=run_id,
+                        run_seed=run_seed,
+                        n_qubits=n_qubits,
+                        n_layers=n_layers,
+                        noise_levels=noise_levels
+                    )
 
                 all_rows.extend(run_rows)
 
@@ -677,11 +781,21 @@ def main():
     results_df.to_csv(per_run_csv, index=False)
     summary_df.to_csv(summary_csv, index=False)
 
+    if all_curve_rows:
+        curves_df = pd.DataFrame(all_curve_rows)
+        curves_csv = csv_dir / f'hmda_qml_evovaq_safe_curves_{suffix}.csv'
+        curves_df.to_csv(curves_csv, index=False)
+    else:
+        curves_csv = None
+
     print('\n================ SUMMARY ================')
     print(summary_df.to_string(index=False))
 
     print(f'\nSaved per-run results to: {per_run_csv}')
     print(f'Saved summary to: {summary_csv}')
+
+    if curves_csv is not None:
+        print(f'Saved SAFE-AI curves to: {curves_csv}')
 
 
 if __name__ == '__main__':

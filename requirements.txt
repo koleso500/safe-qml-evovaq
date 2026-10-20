@@ -1,0 +1,13 @@
+# Core paper environment; Python 3.12. Install CUDA wheels separately if wanted.
+matplotlib==3.10.8
+numpy==2.4.1
+opencv-python==4.13.0.90
+pandas==3.0.0
+pennylane==0.44.0
+PyYAML==6.0.3
+scikit-learn==1.8.0
+adversarial-robustness-toolbox==1.20.1
+evovaq==1.2.1
+safe-ai-metrics==0.2.1
+torch==2.7.1
+torchvision==0.22.1
